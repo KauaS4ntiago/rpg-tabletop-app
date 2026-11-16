@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="RPG Table App API", version="0.1.0")
+from app.api import health
 
+app = FastAPI(title="RPG Tabletop App API", version="0.1.0")
 
-@app.get("/health", tags=["health"])
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+app.include_router(health.router)
