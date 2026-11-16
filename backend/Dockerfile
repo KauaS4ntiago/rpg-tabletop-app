@@ -8,6 +8,9 @@ WORKDIR /code
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY alembic.ini .
+COPY migrations ./migrations
+
 COPY app ./app
 
 RUN useradd --no-create-home appuser
