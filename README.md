@@ -88,7 +88,7 @@ The real `.env` file is ignored by Git. Only `.env.example` is versioned.
 ## Roadmap
 
 - [x] Project setup: Docker, FastAPI skeleton and PostgreSQL
-- [ ] Database connection and migrations
+- [x] Database connection and migrations
 - [ ] Users and authentication
 - [ ] Characters, skills and abilities
 - [ ] Campaigns
