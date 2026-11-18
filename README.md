@@ -68,7 +68,11 @@ Requirements: Docker and Docker Compose.
    ```bash
    docker compose up --build
    ```
-4. Open the API:
+4. Generate a secret key and put it in `.env`:
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(48))"
+   ```
+5. Open the API:
    - Health check: http://localhost:8000/health
    - Interactive docs (Swagger): http://localhost:8000/docs
 
@@ -82,6 +86,7 @@ delete the database data, use `docker compose down -v`.
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
 | `POSTGRES_DB` | Database name |
+| `SECRET_KEY` | Secret used to sign JWTs (at least 32 characters) |
 
 The real `.env` file is ignored by Git. Only `.env.example` is versioned.
 
