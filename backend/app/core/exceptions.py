@@ -8,3 +8,6 @@ class EmailAlreadyRegisteredError(DomainError):
 
 class UsernameAlreadyTakenError(DomainError):
     pass
+
+class InvalidCredentialsError(DomainError):
+    pass
