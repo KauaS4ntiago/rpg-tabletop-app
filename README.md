@@ -90,6 +90,37 @@ delete the database data, use `docker compose down -v`.
 
 The real `.env` file is ignored by Git. Only `.env.example` is versioned.
 
+## Running tests
+
+Tests run on your machine, not inside the Compose containers. They start their
+own throwaway PostgreSQL with [Testcontainers](https://testcontainers.com/), so
+Docker must be running. Your development database is never touched.
+
+Requirements: Python 3.12 and Docker.
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest
+```
+
+The first run downloads the `postgres:17` image, so it takes longer.
+
+### How the tests are set up
+
+- **Real database:** a PostgreSQL 17 container (same major version as
+  production) starts once per test run.
+- **Real schema:** the Alembic migrations run against it, so the migrations are
+  tested too.
+- **Isolation:** each test runs inside a transaction that is rolled back at the
+  end, so tests do not affect each other.
+- **HTTP client:** tests call the API through an in-memory client (`httpx`)
+  that uses the same transaction as the test.
+- Shared fixtures live in `backend/tests/conftest.py`, and the settings are in
+  `backend/pytest.ini`.
+
 ## Roadmap
 
 - [x] Project setup: Docker, FastAPI skeleton and PostgreSQL
