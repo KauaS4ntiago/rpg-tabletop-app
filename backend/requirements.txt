@@ -4,9 +4,3 @@ sqlalchemy[asyncio]
 asyncpg
 pydantic-settings
 alembic
-
-#Tests
-pytest
-pytest-asyncio
-httpx
-testcontainers[postgres]
