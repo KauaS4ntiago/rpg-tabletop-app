@@ -1,15 +1,10 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_session
+from app.api.dependencies import SessionDep
 
 router = APIRouter(prefix="/health", tags=["health"])
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("")

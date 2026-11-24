@@ -3,17 +3,20 @@
 Web app for tabletop RPG groups: character sheets, campaigns and session tools.
 
 > **Status:** work in progress. The back-end is being built first, with the
-> front-end coming later.
+> front-end coming later. Authentication is done; characters and campaigns are
+> next.
 
 ## Tech stack
 
 | Layer | Technology |
 | --- | --- |
 | API | Python 3.12, FastAPI, Uvicorn |
-| Database | PostgreSQL 17 |
-| ORM and migrations *(planned)* | SQLAlchemy 2.0, Alembic |
-| Validation *(planned)* | Pydantic |
+| Database | PostgreSQL 17 (with the `citext` extension) |
+| ORM and migrations | SQLAlchemy 2.0 (async, asyncpg), Alembic |
+| Validation and settings | Pydantic, pydantic-settings |
+| Authentication | argon2id (pwdlib), JWT (PyJWT) |
 | Infrastructure | Docker, Docker Compose |
+| Testing | pytest, pytest-asyncio, pytest-cov, httpx, Testcontainers |
 
 ## Architecture
 
@@ -33,47 +36,153 @@ Client  -->  api (FastAPI, port 8000)  -->  db (PostgreSQL)
   to it but other machines on the network cannot.
 - The API starts only after the database passes its health check.
 
+### Code layers
+
+```
+endpoints (HTTP)  ->  services (business rules)  ->  repositories (database)  ->  models (tables)
+```
+
+- Each layer only talks to the one below it, so rules can be tested without
+  HTTP and queries live in one place.
+- **Schemas** (Pydantic) define what the API accepts and returns. They are
+  separate from the tables, so a new column never leaks by accident.
+- Dependencies are wired with FastAPI's `Depends` in `api/dependencies.py`.
+- Domain errors (`core/exceptions.py`) are translated into HTTP responses in a
+  single place (`api/error_handlers.py`).
+- Services own the transaction commit; repositories only send changes to it.
+
 ## Project structure
 
 ```
 rpg-tabletop-app/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py
-│   │   └── main.py          # FastAPI entry point
+│   │   ├── api/
+│   │   │   ├── endpoints/         # route handlers (auth, users, health)
+│   │   │   ├── dependencies.py    # wiring and the current-user dependency
+│   │   │   ├── error_handlers.py  # domain errors -> HTTP responses
+│   │   │   └── router.py          # groups the endpoints under /api/v1
+│   │   ├── core/                  # settings, database, security, exceptions
+│   │   ├── models/                # SQLAlchemy tables
+│   │   ├── repositories/          # database access
+│   │   ├── schemas/               # request and response models
+│   │   ├── services/              # business rules
+│   │   └── main.py                # FastAPI entry point
+│   ├── migrations/                # Alembic migrations
+│   ├── tests/
+│   │   ├── api/
+│   │   │   ├── auth/              # register and login
+│   │   │   ├── users/             # current user
+│   │   │   └── test_health.py
+│   │   ├── core/                  # security helpers
+│   │   ├── repositories/          # database queries
+│   │   └── conftest.py            # shared fixtures
 │   ├── .dockerignore
+│   ├── alembic.ini
 │   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/                # planned
+│   ├── pytest.ini
+│   ├── requirements.txt
+│   └── requirements-dev.txt
+├── frontend/                      # planned
 ├── docker-compose.yml
-├── .env.example             # template for local environment variables
+├── .env.example                   # template for local environment variables
 └── README.md
 ```
-
-The `app/` package will later be split into layers (*planned*):
-`api` (routes), `services` (business rules), `repositories` (database access),
-`models` (tables), `schemas` (validation) and `core` (settings and security).
 
 ## Getting started
 
 Requirements: Docker and Docker Compose.
 
 1. Clone the repository and enter the folder.
-2. Create your local environment file and set a password:
+2. Create your local environment file and set a database password:
    ```bash
    cp .env.example .env
    ```
    On Windows PowerShell: `copy .env.example .env`
-3. Start everything:
+3. Generate a secret key and put it in `.env` as `SECRET_KEY`:
    ```bash
-   docker compose up --build
+   python -c "import secrets; print(secrets.token_urlsafe(48))"
    ```
-4. Open the API:
-   - Health check: http://localhost:8000/health
+4. Start everything in the background:
+   ```bash
+   docker compose up --build -d
+   ```
+   Follow the logs with `docker compose logs -f api`.
+5. Create the database tables:
+   ```bash
+   docker compose exec api alembic upgrade head
+   ```
+6. Open the API:
    - Interactive docs (Swagger): http://localhost:8000/docs
+   - Health check: http://localhost:8000/health
 
 To stop the containers, use `docker compose down`. Your data is kept. To also
 delete the database data, use `docker compose down -v`.
+
+## Database migrations
+
+Schema changes are versioned with Alembic:
+
+```bash
+docker compose exec api alembic upgrade head                        # apply
+docker compose exec api alembic revision --autogenerate -m "name"   # create
+docker compose exec api alembic downgrade -1                        # undo one
+```
+
+Always read an autogenerated migration before applying it.
+
+## API
+
+| Method | Path | Access | Description |
+| --- | --- | --- | --- |
+| POST | `/api/v1/auth/register` | public | Create an account |
+| POST | `/api/v1/auth/login` | public | Log in with email and password, returns an access token |
+| GET | `/api/v1/users/me` | bearer token | Current user |
+| GET | `/health` | public | API liveness |
+| GET | `/health/db` | public | Database connectivity |
+
+To try it in Swagger: register, log in, click **Authorize**, paste the access
+token (without the word `Bearer`), then call `GET /api/v1/users/me`.
+
+### Error format
+
+Validation errors return `422` with one entry per invalid field. Use `loc` and
+`type` to build the message in the front-end; the submitted values are never
+echoed back.
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "password"],
+      "msg": "String should have at least 8 characters",
+      "type": "string_too_short"
+    }
+  ]
+}
+```
+
+Other errors return a single message: `{"detail": "Email already registered"}`
+(`409`) or `{"detail": "Invalid email or password"}` (`401`).
+
+## Security decisions
+
+- Passwords are hashed with argon2id, and hashes are upgraded transparently at
+  login when the parameters change.
+- Access tokens are short-lived JWTs (15 minutes). The signing algorithm is
+  fixed on verification, so unsigned or re-signed tokens are rejected.
+- A wrong password and an unknown email return the same `401`, and both spend
+  the same hashing time.
+- Usernames and emails are case-insensitive (`citext`); emails are stored in
+  lowercase.
+- Input is validated strictly (password 8 to 128 characters, username 3 to 30
+  letters, digits or underscores, unknown fields rejected).
+- Validation errors never echo the submitted values, and responses only include
+  explicitly allowed fields, never the password hash.
+- Secrets come from environment variables. The API refuses to start if
+  `SECRET_KEY` is missing or shorter than 32 characters.
+- SQL parameters are hidden from database error messages, so emails and
+  hashes do not end up in logs.
 
 ## Environment variables
 
@@ -82,6 +191,7 @@ delete the database data, use `docker compose down -v`.
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
 | `POSTGRES_DB` | Database name |
+| `SECRET_KEY` | Secret used to sign tokens (at least 32 characters) |
 
 The real `.env` file is ignored by Git. Only `.env.example` is versioned.
 
@@ -103,6 +213,12 @@ pytest
 
 The first run downloads the `postgres:17` image, so it takes longer.
 
+To see which lines the tests do not exercise:
+
+```bash
+pytest --cov=app --cov-branch --cov-report=term-missing
+```
+
 ### How the tests are set up
 
 - **Real database:** a PostgreSQL 17 container (same major version as
@@ -113,14 +229,20 @@ The first run downloads the `postgres:17` image, so it takes longer.
   end, so tests do not affect each other.
 - **HTTP client:** tests call the API through an in-memory client (`httpx`)
   that uses the same transaction as the test.
-- Shared fixtures live in `backend/tests/conftest.py`, and the settings are in
-  `backend/pytest.ini`.
+- **Layout:** the tests mirror the structure of `app/` (`tests/api`,
+  `tests/core`, `tests/repositories`). Shared fixtures live in
+  `backend/tests/conftest.py`, and the settings are in `backend/pytest.ini`.
 
 ## Roadmap
 
 - [x] Project setup: Docker, FastAPI skeleton and PostgreSQL
 - [x] Database connection and migrations
-- [ ] Users and authentication
+- [x] Test infrastructure
+- [x] Registration, login and access tokens
+- [ ] Refresh tokens and logout
+- [ ] Rate limiting
+- [ ] Email service and email verification
+- [ ] Password reset
 - [ ] Characters, skills and abilities
 - [ ] Campaigns
 - [ ] Real-time session tools

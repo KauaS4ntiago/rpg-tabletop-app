@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import CITEXT
 
 from app.models.base import Base
 
@@ -16,13 +17,13 @@ class User(Base):
     )
 
     username: Mapped[str] = mapped_column(
-        String(30),
+        CITEXT,
         unique=True,
         nullable=False
     )
 
     email: Mapped[str] = mapped_column(
-        String(254),
+        CITEXT,
         unique=True,
         nullable=False
     )
