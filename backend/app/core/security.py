@@ -1,5 +1,7 @@
 import asyncio
 import uuid
+import secrets
+import hashlib
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -58,3 +60,12 @@ def decode_access_token(token: str) -> uuid.UUID | None:
         return uuid.UUID(payload["sub"])
     except (jwt.PyJWTError, ValueError):
         return None
+    
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+def hash_refresh_token(token: str) -> str:
+    hash_token = hashlib.sha256(token.encode('UTF-8'))
+    
+    return hash_token.hexdigest()
+     
